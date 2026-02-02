@@ -191,6 +191,12 @@ const InsertMenu = (props: InsertMenuProps) => {
     () =>
       [
         {
+          key: "immich",
+          label: "Immich",
+          icon: ImageIcon,
+          onClick: handleOpenImmichDialog,
+        },
+        {
           key: "upload",
           label: t("common.upload"),
           icon: FileIcon,
@@ -207,12 +213,6 @@ const InsertMenu = (props: InsertMenuProps) => {
           label: t("resource.create-dialog.external-link.option"),
           icon: ExternalLinkIcon,
           onClick: handleOpenExternalLinkDialog,
-        },
-        {
-          key: "immich",
-          label: "Immich",
-          icon: ImageIcon,
-          onClick: handleOpenImmichDialog,
         },
         {
           key: "location",
