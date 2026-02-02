@@ -9,7 +9,9 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -25,6 +27,7 @@ import (
 
 	"github.com/usememos/memos/internal/profile"
 	"github.com/usememos/memos/internal/util"
+	"github.com/usememos/memos/internal/immich"
 	"github.com/usememos/memos/plugin/filter"
 	"github.com/usememos/memos/plugin/storage/s3"
 	v1pb "github.com/usememos/memos/proto/gen/api/v1"
@@ -75,16 +78,98 @@ func (s *APIV1Service) CreateAttachment(ctx context.Context, request *v1pb.Creat
 	if request.Attachment == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "attachment is required")
 	}
+	externalLink := strings.TrimSpace(request.Attachment.ExternalLink)
+
+	// Use provided attachment_id or generate a new one
+	attachmentUID := request.AttachmentId
+	if attachmentUID == "" {
+		attachmentUID = shortuuid.New()
+	}
+
+	create := &store.Attachment{
+		UID:       attachmentUID,
+		CreatorID: user.ID,
+	}
+
+	if externalLink != "" {
+		if len(request.Attachment.Content) > 0 {
+			return nil, status.Errorf(codes.InvalidArgument, "content must be empty for external attachments")
+		}
+
+		cfg, err := immich.LoadConfig()
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to load immich config: %v", err)
+		}
+		if !cfg.Enabled() && (strings.HasPrefix(externalLink, immich.ReferencePrefix) || strings.HasPrefix(externalLink, "immich://")) {
+			return nil, status.Errorf(codes.FailedPrecondition, "immich is not configured")
+		}
+		if cfg.Enabled() {
+			if assetID, ok := immich.ExtractAssetIDFromLink(externalLink, cfg); ok {
+				client, err := immich.NewClient(cfg)
+				if err != nil {
+					return nil, status.Errorf(codes.Internal, "failed to initialize immich client: %v", err)
+				}
+				assetInfo, err := client.GetAssetInfo(ctx, assetID)
+				if err != nil {
+					// Allow attachment creation even if asset info cannot be fetched.
+					slog.Warn("failed to fetch immich asset info", slog.String("assetID", assetID), slog.String("error", err.Error()))
+					if request.Attachment.Filename == "" {
+						request.Attachment.Filename = assetID
+					}
+					if request.Attachment.Type == "" {
+						request.Attachment.Type = "application/octet-stream"
+					}
+					create.Reference = immich.NormalizeReference(assetID)
+					create.StorageType = storepb.AttachmentStorageType_EXTERNAL
+				} else {
+					if request.Attachment.Filename == "" {
+						request.Attachment.Filename = assetInfo.OriginalFileName
+					}
+					if request.Attachment.Type == "" {
+						request.Attachment.Type = assetInfo.OriginalMimeType
+					}
+					if request.Attachment.Filename == "" {
+						request.Attachment.Filename = fmt.Sprintf("%s", assetID)
+					}
+					create.Reference = immich.NormalizeReference(assetID)
+					create.StorageType = storepb.AttachmentStorageType_EXTERNAL
+					create.Size = assetInfo.FileSizeInByte
+				}
+				if err := immich.AddAssetToAlbum(ctx, cfg, assetID); err != nil {
+					slog.Warn("failed to add immich asset to album", slog.String("assetID", assetID), slog.String("error", err.Error()))
+				}
+			}
+		}
+
+		if create.Reference == "" {
+			if request.Attachment.Filename == "" {
+				if parsed, err := url.Parse(externalLink); err == nil {
+					request.Attachment.Filename = path.Base(parsed.Path)
+				}
+			}
+			if request.Attachment.Filename == "" {
+				request.Attachment.Filename = "external"
+			}
+			create.Reference = externalLink
+			create.StorageType = storepb.AttachmentStorageType_EXTERNAL
+		}
+	} else {
+		if request.Attachment.Filename == "" {
+			return nil, status.Errorf(codes.InvalidArgument, "filename is required")
+		}
+	}
+
 	if request.Attachment.Filename == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "filename is required")
 	}
 	if !validateFilename(request.Attachment.Filename) {
 		return nil, status.Errorf(codes.InvalidArgument, "filename contains invalid characters or format")
 	}
+
 	if request.Attachment.Type == "" {
 		ext := filepath.Ext(request.Attachment.Filename)
 		mimeType := mime.TypeByExtension(ext)
-		if mimeType == "" {
+		if mimeType == "" && externalLink == "" {
 			mimeType = http.DetectContentType(request.Attachment.Content)
 		}
 		// ParseMediaType to strip parameters
@@ -100,51 +185,48 @@ func (s *APIV1Service) CreateAttachment(ctx context.Context, request *v1pb.Creat
 		return nil, status.Errorf(codes.InvalidArgument, "invalid MIME type format")
 	}
 
-	// Use provided attachment_id or generate a new one
-	attachmentUID := request.AttachmentId
-	if attachmentUID == "" {
-		attachmentUID = shortuuid.New()
-	}
+	create.Filename = request.Attachment.Filename
+	create.Type = request.Attachment.Type
 
-	create := &store.Attachment{
-		UID:       attachmentUID,
-		CreatorID: user.ID,
-		Filename:  request.Attachment.Filename,
-		Type:      request.Attachment.Type,
-	}
-
-	instanceStorageSetting, err := s.Store.GetInstanceStorageSetting(ctx)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get instance storage setting: %v", err)
-	}
-	size := binary.Size(request.Attachment.Content)
-	uploadSizeLimit := int(instanceStorageSetting.UploadSizeLimitMb) * MebiByte
-	if uploadSizeLimit == 0 {
-		uploadSizeLimit = MaxUploadBufferSizeBytes
-	}
-	if size > uploadSizeLimit {
-		return nil, status.Errorf(codes.InvalidArgument, "file size exceeds the limit")
-	}
-	create.Size = int64(size)
-	create.Blob = request.Attachment.Content
-
-	// Strip EXIF metadata from images for privacy protection.
-	// This removes sensitive information like GPS location, device details, etc.
-	if shouldStripExif(create.Type) {
-		if strippedBlob, err := stripImageExif(create.Blob, create.Type); err != nil {
-			// Log warning but continue with original image to ensure uploads don't fail.
-			slog.Warn("failed to strip EXIF metadata from image",
-				slog.String("type", create.Type),
-				slog.String("filename", create.Filename),
-				slog.String("error", err.Error()))
-		} else {
-			create.Blob = strippedBlob
-			create.Size = int64(len(strippedBlob))
+	if externalLink != "" && create.StorageType == storepb.AttachmentStorageType_EXTERNAL {
+		// Skip storage for external attachments.
+		create.Blob = nil
+	} else {
+		instanceStorageSetting, err := s.Store.GetInstanceStorageSetting(ctx)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to get instance storage setting: %v", err)
 		}
+		size := binary.Size(request.Attachment.Content)
+		uploadSizeLimit := int(instanceStorageSetting.UploadSizeLimitMb) * MebiByte
+		if uploadSizeLimit == 0 {
+			uploadSizeLimit = MaxUploadBufferSizeBytes
+		}
+		if size > uploadSizeLimit {
+			return nil, status.Errorf(codes.InvalidArgument, "file size exceeds the limit")
+		}
+		create.Size = int64(size)
+		create.Blob = request.Attachment.Content
 	}
 
-	if err := SaveAttachmentBlob(ctx, s.Profile, s.Store, create); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to save attachment blob: %v", err)
+	if externalLink == "" {
+		// Strip EXIF metadata from images for privacy protection.
+		// This removes sensitive information like GPS location, device details, etc.
+		if shouldStripExif(create.Type) {
+			if strippedBlob, err := stripImageExif(create.Blob, create.Type); err != nil {
+				// Log warning but continue with original image to ensure uploads don't fail.
+				slog.Warn("failed to strip EXIF metadata from image",
+					slog.String("type", create.Type),
+					slog.String("filename", create.Filename),
+					slog.String("error", err.Error()))
+			} else {
+				create.Blob = strippedBlob
+				create.Size = int64(len(strippedBlob))
+			}
+		}
+
+		if err := SaveAttachmentBlob(ctx, s.Profile, s.Store, create); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to save attachment blob: %v", err)
+		}
 	}
 
 	if request.Attachment.Memo != nil {
@@ -347,7 +429,13 @@ func convertAttachmentFromStore(attachment *store.Attachment) *v1pb.Attachment {
 		memoName := fmt.Sprintf("%s%s", MemoNamePrefix, *attachment.MemoUID)
 		attachmentMessage.Memo = &memoName
 	}
-	if attachment.StorageType == storepb.AttachmentStorageType_EXTERNAL || attachment.StorageType == storepb.AttachmentStorageType_S3 {
+	if attachment.StorageType == storepb.AttachmentStorageType_EXTERNAL {
+		if assetID, ok := immich.ParseReference(attachment.Reference); ok && assetID != "" {
+			attachmentMessage.ExternalLink = fmt.Sprintf("/file/attachments/%s/%s", attachment.UID, url.PathEscape(attachment.Filename))
+		} else {
+			attachmentMessage.ExternalLink = attachment.Reference
+		}
+	} else if attachment.StorageType == storepb.AttachmentStorageType_S3 {
 		attachmentMessage.ExternalLink = attachment.Reference
 	}
 

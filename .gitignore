@@ -21,6 +21,7 @@ docs/plans/
 .env
 
 dist
+memos_prod.db*
 
 # VSCode settings
 .vscode

@@ -20,6 +20,7 @@ import (
 
 	"github.com/usememos/memos/internal/profile"
 	"github.com/usememos/memos/internal/util"
+	"github.com/usememos/memos/internal/immich"
 	"github.com/usememos/memos/plugin/storage/s3"
 	storepb "github.com/usememos/memos/proto/gen/store"
 	"github.com/usememos/memos/server/auth"
@@ -110,6 +111,7 @@ func NewFileServerService(profile *profile.Profile, store *store.Store, secret s
 func (s *FileServerService) RegisterRoutes(echoServer *echo.Echo) {
 	fileGroup := echoServer.Group("/file")
 	fileGroup.GET("/attachments/:uid/:filename", s.serveAttachmentFile)
+	fileGroup.GET("/immich/:assetID", s.serveImmichAsset)
 	fileGroup.GET("/users/:identifier/avatar", s.serveUserAvatar)
 }
 
@@ -146,6 +148,69 @@ func (s *FileServerService) serveAttachmentFile(c echo.Context) error {
 	}
 
 	return s.serveStaticFile(c, attachment, contentType, wantThumbnail)
+}
+
+// serveImmichAsset proxies immich assets by asset ID for authenticated users.
+func (s *FileServerService) serveImmichAsset(c echo.Context) error {
+	ctx := c.Request().Context()
+	user, err := s.getCurrentUser(ctx, c)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get current user").SetInternal(err)
+	}
+	if user == nil {
+		return echo.NewHTTPError(http.StatusUnauthorized, "unauthorized access")
+	}
+
+	assetID := c.Param("assetID")
+	size := strings.TrimSpace(c.QueryParam("size"))
+	downloadOriginal := false
+	switch size {
+	case "thumbnail", "fullsize":
+		// use size as-is
+	case "original":
+		size = ""
+		downloadOriginal = true
+	default:
+		size = "thumbnail"
+	}
+
+	cfg, err := immich.LoadConfig()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load immich config").SetInternal(err)
+	}
+	if !cfg.Enabled() {
+		return echo.NewHTTPError(http.StatusBadRequest, "immich is not configured")
+	}
+	client, err := immich.NewClient(cfg)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to initialize immich client").SetInternal(err)
+	}
+
+	resp, err := client.FetchAsset(ctx, assetID, size, downloadOriginal, c.Request().Header)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, "failed to fetch immich asset").SetInternal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			message = resp.Status
+		}
+		return echo.NewHTTPError(resp.StatusCode, fmt.Sprintf("immich request failed: %s", message))
+	}
+
+	setSecurityHeaders(c)
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	setMediaHeaders(c, contentType, contentType)
+	copyProxyHeaders(c.Response().Header(), resp.Header)
+
+	c.Response().WriteHeader(resp.StatusCode)
+	_, err = io.Copy(c.Response().Writer, resp.Body)
+	return err
 }
 
 // serveUserAvatar serves user avatar images.
@@ -205,6 +270,12 @@ func (s *FileServerService) serveMediaStream(c echo.Context, attachment *store.A
 		}
 		return c.Redirect(http.StatusTemporaryRedirect, presignURL)
 
+	case storepb.AttachmentStorageType_EXTERNAL:
+		if immichAssetID, ok := immich.ParseReference(attachment.Reference); ok {
+			return s.proxyImmichAsset(c, immichAssetID, attachment, false)
+		}
+		return echo.NewHTTPError(http.StatusBadRequest, "unsupported external attachment type")
+
 	default:
 		// Database storage fallback.
 		modTime := time.Unix(attachment.UpdatedTs, 0)
@@ -215,6 +286,13 @@ func (s *FileServerService) serveMediaStream(c echo.Context, attachment *store.A
 
 // serveStaticFile serves non-streaming files (images, documents, etc.).
 func (s *FileServerService) serveStaticFile(c echo.Context, attachment *store.Attachment, contentType string, wantThumbnail bool) error {
+	if attachment.StorageType == storepb.AttachmentStorageType_EXTERNAL {
+		if immichAssetID, ok := immich.ParseReference(attachment.Reference); ok {
+			return s.proxyImmichAsset(c, immichAssetID, attachment, wantThumbnail)
+		}
+		return echo.NewHTTPError(http.StatusBadRequest, "unsupported external attachment type")
+	}
+
 	blob, err := s.getAttachmentBlob(attachment)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get attachment blob").SetInternal(err)
@@ -255,6 +333,70 @@ func (s *FileServerService) getAttachmentBlob(attachment *store.Attachment) ([]b
 
 	default:
 		return attachment.Blob, nil
+	}
+}
+
+func (s *FileServerService) proxyImmichAsset(c echo.Context, assetID string, attachment *store.Attachment, wantThumbnail bool) error {
+	cfg, err := immich.LoadConfig()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to load immich config").SetInternal(err)
+	}
+	if !cfg.Enabled() {
+		return echo.NewHTTPError(http.StatusBadRequest, "immich is not configured")
+	}
+	client, err := immich.NewClient(cfg)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to initialize immich client").SetInternal(err)
+	}
+
+	downloadOriginal := false
+	size := ""
+	if wantThumbnail {
+		size = "thumbnail"
+	} else if strings.HasPrefix(attachment.Type, "image/") {
+		size = "fullsize"
+	} else {
+		downloadOriginal = true
+	}
+
+	resp, err := client.FetchAsset(c.Request().Context(), assetID, size, downloadOriginal, c.Request().Header)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, "failed to fetch immich asset").SetInternal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			message = resp.Status
+		}
+		return echo.NewHTTPError(resp.StatusCode, fmt.Sprintf("immich request failed: %s", message))
+	}
+
+	setSecurityHeaders(c)
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = s.sanitizeContentType(attachment.Type)
+	}
+	setMediaHeaders(c, contentType, attachment.Type)
+	copyProxyHeaders(c.Response().Header(), resp.Header)
+
+	c.Response().WriteHeader(resp.StatusCode)
+	_, err = io.Copy(c.Response().Writer, resp.Body)
+	return err
+}
+
+func copyProxyHeaders(dst, src http.Header) {
+	for _, key := range []string{
+		"Content-Length",
+		"Content-Range",
+		"Accept-Ranges",
+		"ETag",
+		"Last-Modified",
+	} {
+		if value := src.Get(key); value != "" {
+			dst.Set(key, value)
+		}
 	}
 }
 

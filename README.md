@@ -74,6 +74,10 @@ Memos is a privacy-first, self-hosted knowledge base that works seamlessly for p
 - **🎨 Beautiful Interface**
   - Clean, minimal design and dark mode support
   - Mobile-responsive layout
+- **🖼️ Immich Integration (This Fork)**
+  - Browse and attach Immich photos directly from the editor
+  - Attachments stay external (no duplicate file storage)
+  - Optional auto-add to a dedicated Immich album (default: "Memos")
 
 ## Quick Start
 

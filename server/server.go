@@ -18,6 +18,7 @@ import (
 	storepb "github.com/usememos/memos/proto/gen/store"
 	apiv1 "github.com/usememos/memos/server/router/api/v1"
 	"github.com/usememos/memos/server/router/fileserver"
+	immichrouter "github.com/usememos/memos/server/router/immich"
 	"github.com/usememos/memos/server/router/frontend"
 	"github.com/usememos/memos/server/router/rss"
 	"github.com/usememos/memos/server/runner/s3presign"
@@ -73,6 +74,7 @@ func NewServer(ctx context.Context, profile *profile.Profile, store *store.Store
 	// This uses native HTTP serving (http.ServeContent) instead of gRPC for video/audio files.
 	fileServerService := fileserver.NewFileServerService(s.Profile, s.Store, s.Secret)
 	fileServerService.RegisterRoutes(echoServer)
+	immichrouter.NewService(s.Store, s.Secret).RegisterRoutes(echoServer)
 
 	// Create and register RSS routes (needs markdown service from apiV1Service).
 	rss.NewRSSService(s.Profile, s.Store, apiV1Service.MarkdownService).RegisterRoutes(rootGroup)

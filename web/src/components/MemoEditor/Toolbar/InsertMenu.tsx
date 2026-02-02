@@ -1,7 +1,19 @@
 import { LatLng } from "leaflet";
 import { uniqBy } from "lodash-es";
-import { FileIcon, LinkIcon, LoaderIcon, type LucideIcon, MapPinIcon, Maximize2Icon, MoreHorizontalIcon, PlusIcon } from "lucide-react";
+import {
+  ExternalLinkIcon,
+  FileIcon,
+  ImageIcon,
+  LinkIcon,
+  LoaderIcon,
+  type LucideIcon,
+  MapPinIcon,
+  Maximize2Icon,
+  MoreHorizontalIcon,
+  PlusIcon,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "react-hot-toast";
 import { useDebounce } from "react-use";
 import { useReverseGeocoding } from "@/components/map";
 import { Button } from "@/components/ui/button";
@@ -15,10 +27,13 @@ import {
   DropdownMenuTrigger,
   useDropdownMenuSubHoverDelay,
 } from "@/components/ui/dropdown-menu";
+import { handleError } from "@/lib/error";
 import type { MemoRelation } from "@/types/proto/api/v1/memo_service_pb";
 import { useTranslate } from "@/utils/i18n";
-import { LinkMemoDialog, LocationDialog } from "../components";
+import { ExternalLinkDialog, ImmichPickerDialog, LinkMemoDialog, LocationDialog } from "../components";
 import { useFileUpload, useLinkMemo, useLocation } from "../hooks";
+import { createExternalAttachment } from "../services/externalAttachmentService";
+import type { ImmichAsset } from "../services/immichService";
 import { useEditorContext } from "../state";
 import type { InsertMenuProps } from "../types";
 import type { LocalFile } from "../types/attachment";
@@ -31,6 +46,10 @@ const InsertMenu = (props: InsertMenuProps) => {
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [locationDialogOpen, setLocationDialogOpen] = useState(false);
   const [moreSubmenuOpen, setMoreSubmenuOpen] = useState(false);
+  const [externalLinkDialogOpen, setExternalLinkDialogOpen] = useState(false);
+  const [immichDialogOpen, setImmichDialogOpen] = useState(false);
+  const [isCreatingExternalLink, setIsCreatingExternalLink] = useState(false);
+  const [isCreatingImmichAttachment, setIsCreatingImmichAttachment] = useState(false);
 
   const { handleTriggerEnter, handleTriggerLeave, handleContentEnter, handleContentLeave } = useDropdownMenuSubHoverDelay(
     150,
@@ -71,10 +90,14 @@ const InsertMenu = (props: InsertMenuProps) => {
     }
   }, [displayName]);
 
-  const isUploading = selectingFlag || isUploadingProp;
+  const isUploading = selectingFlag || isUploadingProp || isCreatingExternalLink || isCreatingImmichAttachment;
 
   const handleOpenLinkDialog = useCallback(() => {
     setLinkDialogOpen(true);
+  }, []);
+
+  const handleOpenExternalLinkDialog = useCallback(() => {
+    setExternalLinkDialogOpen(true);
   }, []);
 
   const handleLocationClick = useCallback(() => {
@@ -118,6 +141,52 @@ const InsertMenu = (props: InsertMenuProps) => {
     setMoreSubmenuOpen(false);
   }, [onToggleFocusMode]);
 
+  const handleCreateExternalLink = useCallback(
+    async (externalLink: string) => {
+      setIsCreatingExternalLink(true);
+      dispatch(actions.setLoading("uploading", true));
+      try {
+        const attachment = await createExternalAttachment(externalLink);
+        dispatch(actions.addAttachment(attachment));
+        setExternalLinkDialogOpen(false);
+      } catch (error) {
+        handleError(error, toast.error, {
+          context: "Failed to create external attachment",
+          fallbackMessage: "Failed to create external attachment.",
+        });
+      } finally {
+        dispatch(actions.setLoading("uploading", false));
+        setIsCreatingExternalLink(false);
+      }
+    },
+    [actions, dispatch],
+  );
+
+  const handleOpenImmichDialog = useCallback(() => {
+    setImmichDialogOpen(true);
+  }, []);
+
+  const handleSelectImmichAsset = useCallback(
+    async (asset: ImmichAsset) => {
+      setIsCreatingImmichAttachment(true);
+      dispatch(actions.setLoading("uploading", true));
+      try {
+        const attachment = await createExternalAttachment(`immich://${asset.id}`);
+        dispatch(actions.addAttachment(attachment));
+        setImmichDialogOpen(false);
+      } catch (error) {
+        handleError(error, toast.error, {
+          context: "Failed to attach Immich asset",
+          fallbackMessage: "Failed to attach Immich asset.",
+        });
+      } finally {
+        dispatch(actions.setLoading("uploading", false));
+        setIsCreatingImmichAttachment(false);
+      }
+    },
+    [actions, dispatch],
+  );
+
   const menuItems = useMemo(
     () =>
       [
@@ -134,13 +203,25 @@ const InsertMenu = (props: InsertMenuProps) => {
           onClick: handleOpenLinkDialog,
         },
         {
+          key: "external-link",
+          label: t("resource.create-dialog.external-link.option"),
+          icon: ExternalLinkIcon,
+          onClick: handleOpenExternalLinkDialog,
+        },
+        {
+          key: "immich",
+          label: "Immich",
+          icon: ImageIcon,
+          onClick: handleOpenImmichDialog,
+        },
+        {
           key: "location",
           label: t("tooltip.select-location"),
           icon: MapPinIcon,
           onClick: handleLocationClick,
         },
       ] satisfies Array<{ key: string; label: string; icon: LucideIcon; onClick: () => void }>,
-    [handleLocationClick, handleOpenLinkDialog, handleUploadClick, t],
+    [handleLocationClick, handleOpenExternalLinkDialog, handleOpenImmichDialog, handleOpenLinkDialog, handleUploadClick, t],
   );
 
   return (
@@ -194,6 +275,19 @@ const InsertMenu = (props: InsertMenuProps) => {
         filteredMemos={linkMemo.filteredMemos}
         isFetching={linkMemo.isFetching}
         onSelectMemo={linkMemo.addMemoRelation}
+      />
+
+      <ExternalLinkDialog
+        open={externalLinkDialogOpen}
+        onOpenChange={setExternalLinkDialogOpen}
+        onConfirm={handleCreateExternalLink}
+        isSubmitting={isCreatingExternalLink}
+      />
+
+      <ImmichPickerDialog
+        open={immichDialogOpen}
+        onOpenChange={setImmichDialogOpen}
+        onSelectAsset={handleSelectImmichAsset}
       />
 
       <LocationDialog

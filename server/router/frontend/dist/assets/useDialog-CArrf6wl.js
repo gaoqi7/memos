@@ -1,0 +1,1 @@
+import{r as s}from"./leaflet-vendor-CTVbxAuc.js";function u(t=!1){const[a,e]=s.useState(t),o=s.useCallback(()=>e(!0),[]),l=s.useCallback(()=>e(!1),[]),n=s.useCallback(()=>e(c=>!c),[]);return{isOpen:a,open:o,close:l,toggle:n,setOpen:e}}export{u};

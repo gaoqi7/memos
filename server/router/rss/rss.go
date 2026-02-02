@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/feeds"
 	"github.com/labstack/echo/v4"
 
+	"github.com/usememos/memos/internal/immich"
 	"github.com/usememos/memos/internal/profile"
 	"github.com/usememos/memos/plugin/markdown"
 	storepb "github.com/usememos/memos/proto/gen/store"
@@ -272,7 +273,11 @@ func (s *RSSService) generateRSSFromMemoList(ctx context.Context, memoList []*st
 			attachment := attachments[0]
 			enclosure := feeds.Enclosure{}
 			if attachment.StorageType == storepb.AttachmentStorageType_EXTERNAL || attachment.StorageType == storepb.AttachmentStorageType_S3 {
-				enclosure.Url = attachment.Reference
+				if _, ok := immich.ParseReference(attachment.Reference); ok {
+					enclosure.Url = fmt.Sprintf("%s/file/attachments/%s/%s", baseURL, attachment.UID, attachment.Filename)
+				} else {
+					enclosure.Url = attachment.Reference
+				}
 			} else {
 				enclosure.Url = fmt.Sprintf("%s/file/attachments/%s/%s", baseURL, attachment.UID, attachment.Filename)
 			}
