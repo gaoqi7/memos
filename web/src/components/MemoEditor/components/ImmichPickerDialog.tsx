@@ -1,4 +1,4 @@
-import { LoaderIcon, RefreshCwIcon } from "lucide-react";
+import { CheckCircle2Icon, LoaderIcon, RefreshCwIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
 import { Button } from "@/components/ui/button";
@@ -9,19 +9,33 @@ import { listImmichAssets, type ImmichAsset } from "../services/immichService";
 interface ImmichPickerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSelectAsset: (asset: ImmichAsset) => Promise<void>;
+  attachedAssetIds: string[];
+  onApplySelection: (selectedAssetIds: string[]) => Promise<void>;
 }
 
 const PAGE_SIZE = 60;
 
-const ImmichPickerDialog = ({ open, onOpenChange, onSelectAsset }: ImmichPickerDialogProps) => {
+const ImmichPickerDialog = ({ open, onOpenChange, attachedAssetIds, onApplySelection }: ImmichPickerDialogProps) => {
   const [assets, setAssets] = useState<ImmichAsset[]>([]);
   const [nextPageToken, setNextPageToken] = useState<string | undefined>();
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isSelecting, setIsSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const hasMore = useMemo(() => Boolean(nextPageToken), [nextPageToken]);
+  const attachedIdSet = useMemo(() => new Set(attachedAssetIds), [attachedAssetIds]);
+  const hasSelectionChanged = useMemo(() => {
+    if (selectedIds.size !== attachedIdSet.size) {
+      return true;
+    }
+    for (const id of selectedIds) {
+      if (!attachedIdSet.has(id)) {
+        return true;
+      }
+    }
+    return false;
+  }, [attachedIdSet, selectedIds]);
 
   const fetchAssets = useCallback(
     async (options: { reset?: boolean; pageToken?: string } = {}) => {
@@ -38,8 +52,10 @@ const ImmichPickerDialog = ({ open, onOpenChange, onSelectAsset }: ImmichPickerD
 
   useEffect(() => {
     if (!open) {
+      setSelectedIds(new Set());
       return;
     }
+    setSelectedIds(new Set(attachedAssetIds));
     setIsLoading(true);
     fetchAssets({ reset: true, pageToken: undefined })
       .catch((error) => {
@@ -51,7 +67,7 @@ const ImmichPickerDialog = ({ open, onOpenChange, onSelectAsset }: ImmichPickerD
       .finally(() => {
         setIsLoading(false);
       });
-  }, [fetchAssets, open]);
+  }, [attachedAssetIds, fetchAssets, open]);
 
   const handleLoadMore = useCallback(async () => {
     if (!nextPageToken) {
@@ -71,32 +87,55 @@ const ImmichPickerDialog = ({ open, onOpenChange, onSelectAsset }: ImmichPickerD
   }, [fetchAssets, nextPageToken]);
 
   const handleSelectAsset = useCallback(
-    async (asset: ImmichAsset) => {
+    (asset: ImmichAsset) => {
       if (isSelecting) {
         return;
       }
-      setIsSelecting(true);
-      try {
-        await onSelectAsset(asset);
-        onOpenChange(false);
-      } catch (error) {
-        handleError(error, toast.error, {
-          context: "Failed to attach Immich asset",
-          fallbackMessage: "Failed to attach Immich asset.",
-        });
-      } finally {
-        setIsSelecting(false);
-      }
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(asset.id)) {
+          next.delete(asset.id);
+        } else {
+          next.add(asset.id);
+        }
+        return next;
+      });
     },
-    [isSelecting, onOpenChange, onSelectAsset],
+    [isSelecting],
+  );
+
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (nextOpen) {
+        onOpenChange(true);
+        return;
+      }
+      if (!hasSelectionChanged || isSelecting) {
+        onOpenChange(false);
+        return;
+      }
+      setIsSelecting(true);
+      onApplySelection(Array.from(selectedIds))
+        .catch((error) => {
+          handleError(error, toast.error, {
+            context: "Failed to attach Immich assets",
+            fallbackMessage: "Failed to attach Immich assets.",
+          });
+        })
+        .finally(() => {
+          setIsSelecting(false);
+          onOpenChange(false);
+        });
+    },
+    [hasSelectionChanged, isSelecting, onApplySelection, onOpenChange, selectedIds],
   );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col gap-4">
         <DialogHeader>
           <DialogTitle>Immich</DialogTitle>
-          <DialogDescription>Select a photo from your Immich library to attach.</DialogDescription>
+          <DialogDescription>Select one or more photos, then close to attach.</DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
@@ -124,7 +163,9 @@ const ImmichPickerDialog = ({ open, onOpenChange, onSelectAsset }: ImmichPickerD
                 <button
                   key={asset.id}
                   type="button"
-                  className="group relative rounded-md overflow-hidden border bg-background hover:border-primary transition"
+                  className={`group relative rounded-md overflow-hidden border bg-background hover:border-primary transition ${
+                    selectedIds.has(asset.id) ? "border-primary ring-2 ring-primary/40" : ""
+                  }`}
                   onClick={() => handleSelectAsset(asset)}
                 >
                   <img
@@ -134,6 +175,11 @@ const ImmichPickerDialog = ({ open, onOpenChange, onSelectAsset }: ImmichPickerD
                     loading="lazy"
                   />
                   <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-black/40 transition" />
+                  {selectedIds.has(asset.id) ? (
+                    <div className="absolute top-2 right-2 text-primary bg-background/90 rounded-full">
+                      <CheckCircle2Icon className="size-5" />
+                    </div>
+                  ) : null}
                   <div className="absolute bottom-0 left-0 right-0 text-xs text-white bg-black/50 px-2 py-1 truncate">
                     {asset.filename}
                   </div>

@@ -78,6 +78,9 @@ message Attachment {
   // Optional. The related memo. Refer to `Memo.name`.
   // Format: memos/{memo}
   optional string memo = 8 [(google.api.field_behavior) = OPTIONAL];
+
+  // Output only. Immich asset ID if this is an Immich attachment.
+  string immich_asset_id = 9 [(google.api.field_behavior) = OUTPUT_ONLY];
 }
 
 message CreateAttachmentRequest {

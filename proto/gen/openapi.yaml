@@ -2030,6 +2030,10 @@ components:
                     description: |-
                         Optional. The related memo. Refer to `Memo.name`.
                          Format: memos/{memo}
+                immichAssetId:
+                    readOnly: true
+                    type: string
+                    description: Output only. Immich asset ID if this is an Immich attachment.
         CreatePersonalAccessTokenRequest:
             required:
                 - parent

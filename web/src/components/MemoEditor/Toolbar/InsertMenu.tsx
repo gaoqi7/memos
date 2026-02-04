@@ -28,12 +28,12 @@ import {
   useDropdownMenuSubHoverDelay,
 } from "@/components/ui/dropdown-menu";
 import { handleError } from "@/lib/error";
+import type { Attachment } from "@/types/proto/api/v1/attachment_service_pb";
 import type { MemoRelation } from "@/types/proto/api/v1/memo_service_pb";
 import { useTranslate } from "@/utils/i18n";
 import { ExternalLinkDialog, ImmichPickerDialog, LinkMemoDialog, LocationDialog } from "../components";
 import { useFileUpload, useLinkMemo, useLocation } from "../hooks";
 import { createExternalAttachment } from "../services/externalAttachmentService";
-import type { ImmichAsset } from "../services/immichService";
 import { useEditorContext } from "../state";
 import type { InsertMenuProps } from "../types";
 import type { LocalFile } from "../types/attachment";
@@ -166,25 +166,77 @@ const InsertMenu = (props: InsertMenuProps) => {
     setImmichDialogOpen(true);
   }, []);
 
-  const handleSelectImmichAsset = useCallback(
-    async (asset: ImmichAsset) => {
+  const getImmichAssetID = useCallback((attachment: Attachment): string | null => {
+    if (attachment.immichAssetId) {
+      return attachment.immichAssetId;
+    }
+    const link = attachment.externalLink || "";
+    if (!link) {
+      return null;
+    }
+    try {
+      const url = new URL(link, window.location.origin);
+      const assetId = url.searchParams.get("immichAssetId");
+      if (assetId) {
+        return assetId.replace(/^\/+/, "");
+      }
+    } catch {
+      // Ignore malformed URLs and fallback to prefix parsing.
+    }
+    if (link.startsWith("immich://")) {
+      return link.replace(/^immich:\/\//, "").replace(/^\/+/, "");
+    }
+    if (link.startsWith("immich:")) {
+      return link.replace(/^immich:/, "").replace(/^\/+/, "");
+    }
+    return null;
+  }, []);
+
+  const attachedImmichAttachments = useMemo(
+    () =>
+      state.metadata.attachments
+        .map((attachment) => ({
+          attachment,
+          assetId: getImmichAssetID(attachment),
+        }))
+        .filter((item): item is { attachment: Attachment; assetId: string } => Boolean(item.assetId)),
+    [getImmichAssetID, state.metadata.attachments],
+  );
+
+  const attachedImmichAssetIds = useMemo(() => attachedImmichAttachments.map((item) => item.assetId), [attachedImmichAttachments]);
+
+  const handleApplyImmichSelection = useCallback(
+    async (selectedAssetIds: string[]) => {
       setIsCreatingImmichAttachment(true);
       dispatch(actions.setLoading("uploading", true));
       try {
-        const attachment = await createExternalAttachment(`immich://${asset.id}`);
-        dispatch(actions.addAttachment(attachment));
-        setImmichDialogOpen(false);
+        const selectedIdSet = new Set(selectedAssetIds);
+        const attachedIdSet = new Set(attachedImmichAttachments.map((item) => item.assetId));
+
+        for (const item of attachedImmichAttachments) {
+          if (!selectedIdSet.has(item.assetId)) {
+            dispatch(actions.removeAttachment(item.attachment.name));
+          }
+        }
+
+        for (const assetId of selectedAssetIds) {
+          if (attachedIdSet.has(assetId)) {
+            continue;
+          }
+          const attachment = await createExternalAttachment(`immich://${assetId}`);
+          dispatch(actions.addAttachment(attachment));
+        }
       } catch (error) {
         handleError(error, toast.error, {
-          context: "Failed to attach Immich asset",
-          fallbackMessage: "Failed to attach Immich asset.",
+          context: "Failed to attach Immich assets",
+          fallbackMessage: "Failed to attach Immich assets.",
         });
       } finally {
         dispatch(actions.setLoading("uploading", false));
         setIsCreatingImmichAttachment(false);
       }
     },
-    [actions, dispatch],
+    [actions, attachedImmichAttachments, dispatch],
   );
 
   const menuItems = useMemo(
@@ -287,7 +339,8 @@ const InsertMenu = (props: InsertMenuProps) => {
       <ImmichPickerDialog
         open={immichDialogOpen}
         onOpenChange={setImmichDialogOpen}
-        onSelectAsset={handleSelectImmichAsset}
+        attachedAssetIds={attachedImmichAssetIds}
+        onApplySelection={handleApplyImmichSelection}
       />
 
       <LocationDialog

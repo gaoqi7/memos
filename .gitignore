@@ -28,3 +28,6 @@ memos_prod.db*
 
 # Git worktrees
 .worktrees/
+
+#memos local artifacts
+memos-immich.tar

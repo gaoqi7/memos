@@ -432,6 +432,7 @@ func convertAttachmentFromStore(attachment *store.Attachment) *v1pb.Attachment {
 	if attachment.StorageType == storepb.AttachmentStorageType_EXTERNAL {
 		if assetID, ok := immich.ParseReference(attachment.Reference); ok && assetID != "" {
 			attachmentMessage.ExternalLink = fmt.Sprintf("/file/attachments/%s/%s", attachment.UID, url.PathEscape(attachment.Filename))
+			attachmentMessage.ImmichAssetId = assetID
 		} else {
 			attachmentMessage.ExternalLink = attachment.Reference
 		}
