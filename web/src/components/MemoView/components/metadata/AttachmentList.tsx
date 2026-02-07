@@ -55,13 +55,29 @@ const DocumentItem = ({ attachment }: { attachment: Attachment }) => {
   );
 };
 
-const MediaGrid = ({ attachments, onImageClick }: { attachments: Attachment[]; onImageClick: (url: string) => void }) => (
+const MediaGrid = ({
+  attachments,
+  onImageClick,
+  onVideoClick,
+}: {
+  attachments: Attachment[];
+  onImageClick: (url: string) => void;
+  onVideoClick: (url: string) => void;
+}) => (
   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
     {attachments.map((attachment) => (
       <div
         key={attachment.name}
         className="aspect-square rounded-lg overflow-hidden bg-muted/40 border border-border hover:border-accent/50 transition-all cursor-pointer group"
-        onClick={() => onImageClick(getAttachmentUrl(attachment))}
+        onClick={() => {
+          const attachmentType = getAttachmentType(attachment);
+          const mediaUrl = getAttachmentUrl(attachment);
+          if (attachmentType === "image/*") {
+            onImageClick(mediaUrl);
+          } else if (attachmentType === "video/*") {
+            onVideoClick(mediaUrl);
+          }
+        }}
       >
         <div className="w-full h-full relative">
           <AttachmentCard attachment={attachment} className="rounded-none" />
@@ -111,6 +127,9 @@ const AttachmentList = ({ attachments }: AttachmentListProps) => {
     const mimeType = imageAttachments[index]?.type;
     setPreviewImage({ open: true, urls: imgUrls, index, mimeType });
   };
+  const handleVideoClick = (videoUrl: string) => {
+    window.open(videoUrl, "_blank", "noopener,noreferrer");
+  };
 
   return (
     <>
@@ -118,7 +137,7 @@ const AttachmentList = ({ attachments }: AttachmentListProps) => {
         <SectionHeader icon={PaperclipIcon} title="Attachments" count={attachments.length} />
 
         <div className="p-2 flex flex-col gap-1">
-          {mediaItems.length > 0 && <MediaGrid attachments={mediaItems} onImageClick={handleImageClick} />}
+          {mediaItems.length > 0 && <MediaGrid attachments={mediaItems} onImageClick={handleImageClick} onVideoClick={handleVideoClick} />}
 
           {mediaItems.length > 0 && docItems.length > 0 && <div className="border-t mt-1 border-border opacity-60" />}
 
