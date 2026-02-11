@@ -58,41 +58,42 @@ const DocumentItem = ({ attachment }: { attachment: Attachment }) => {
 const MediaGrid = ({
   attachments,
   onImageClick,
-  onVideoClick,
 }: {
   attachments: Attachment[];
   onImageClick: (url: string) => void;
-  onVideoClick: (url: string) => void;
 }) => (
   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-    {attachments.map((attachment) => (
-      <div
-        key={attachment.name}
-        className="aspect-square rounded-lg overflow-hidden bg-muted/40 border border-border hover:border-accent/50 transition-all cursor-pointer group"
-        onClick={() => {
-          const attachmentType = getAttachmentType(attachment);
-          const mediaUrl = getAttachmentUrl(attachment);
-          if (attachmentType === "image/*") {
-            onImageClick(mediaUrl);
-          } else if (attachmentType === "video/*") {
-            onVideoClick(mediaUrl);
-          }
-        }}
-      >
-        <div className="w-full h-full relative">
-          <AttachmentCard attachment={attachment} className="rounded-none" />
-          {getAttachmentType(attachment) === "video/*" && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 transition-colors">
-              <div className="w-8 h-8 rounded-full bg-white/80 flex items-center justify-center">
-                <svg className="w-5 h-5 text-black fill-current ml-0.5" viewBox="0 0 24 24">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
+    {attachments.map((attachment) => {
+      const attachmentType = getAttachmentType(attachment);
+      const mediaUrl = getAttachmentUrl(attachment);
+
+      return (
+        <div
+          key={attachment.name}
+          className={`aspect-square rounded-lg overflow-hidden bg-muted/40 border border-border hover:border-accent/50 transition-all group ${
+            attachmentType === "image/*" ? "cursor-pointer" : ""
+          }`}
+          onClick={() => {
+            if (attachmentType === "image/*") {
+              onImageClick(mediaUrl);
+            }
+          }}
+        >
+          <div className="w-full h-full relative">
+            <AttachmentCard attachment={attachment} className="rounded-none" />
+            {attachmentType === "video/*" && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 transition-colors">
+                <div className="w-8 h-8 rounded-full bg-white/80 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-black fill-current ml-0.5" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
-    ))}
+      );
+    })}
   </div>
 );
 
@@ -127,9 +128,6 @@ const AttachmentList = ({ attachments }: AttachmentListProps) => {
     const mimeType = imageAttachments[index]?.type;
     setPreviewImage({ open: true, urls: imgUrls, index, mimeType });
   };
-  const handleVideoClick = (videoUrl: string) => {
-    window.open(videoUrl, "_blank", "noopener,noreferrer");
-  };
 
   return (
     <>
@@ -137,7 +135,7 @@ const AttachmentList = ({ attachments }: AttachmentListProps) => {
         <SectionHeader icon={PaperclipIcon} title="Attachments" count={attachments.length} />
 
         <div className="p-2 flex flex-col gap-1">
-          {mediaItems.length > 0 && <MediaGrid attachments={mediaItems} onImageClick={handleImageClick} onVideoClick={handleVideoClick} />}
+          {mediaItems.length > 0 && <MediaGrid attachments={mediaItems} onImageClick={handleImageClick} />}
 
           {mediaItems.length > 0 && docItems.length > 0 && <div className="border-t mt-1 border-border opacity-60" />}
 
