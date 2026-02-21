@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -25,14 +26,22 @@ var (
 		Short: `An open source, lightweight note-taking service. Easily capture and share your great thoughts.`,
 		Run: func(_ *cobra.Command, _ []string) {
 			instanceProfile := &profile.Profile{
-				Demo:        viper.GetBool("demo"),
-				Addr:        viper.GetString("addr"),
-				Port:        viper.GetInt("port"),
-				UNIXSock:    viper.GetString("unix-sock"),
-				Data:        viper.GetString("data"),
-				Driver:      viper.GetString("driver"),
-				DSN:         viper.GetString("dsn"),
-				InstanceURL: viper.GetString("instance-url"),
+				Demo:                 viper.GetBool("demo"),
+				Addr:                 viper.GetString("addr"),
+				Port:                 viper.GetInt("port"),
+				UNIXSock:             viper.GetString("unix-sock"),
+				Data:                 viper.GetString("data"),
+				Driver:               viper.GetString("driver"),
+				DSN:                  viper.GetString("dsn"),
+				InstanceURL:          viper.GetString("instance-url"),
+				AIProvider:           viper.GetString("ai-provider"),
+				OllamaBaseURL:        viper.GetString("ollama-base-url"),
+				OllamaModel:          viper.GetString("ollama-model"),
+				OllamaTimeoutSeconds: viper.GetInt("ollama-timeout"),
+				OpenAIAPIKey:         viper.GetString("openai-api-key"),
+				OpenAIBaseURL:        viper.GetString("openai-base-url"),
+				OpenAIModel:          viper.GetString("openai-model"),
+				OpenAITimeoutSeconds: viper.GetInt("openai-timeout"),
 			}
 			instanceProfile.Version = version.GetCurrentVersion()
 
@@ -95,6 +104,13 @@ func init() {
 	viper.SetDefault("demo", false)
 	viper.SetDefault("driver", "sqlite")
 	viper.SetDefault("port", 8081)
+	viper.SetDefault("ai-provider", "ollama")
+	viper.SetDefault("ollama-base-url", "http://127.0.0.1:11434")
+	viper.SetDefault("ollama-model", "qwen3:8b")
+	viper.SetDefault("ollama-timeout", 120)
+	viper.SetDefault("openai-base-url", "https://api.openai.com/v1")
+	viper.SetDefault("openai-model", "gpt-4.1-mini")
+	viper.SetDefault("openai-timeout", 8)
 
 	rootCmd.PersistentFlags().Bool("demo", false, "enable demo mode")
 	rootCmd.PersistentFlags().String("addr", "", "address of server")
@@ -104,6 +120,14 @@ func init() {
 	rootCmd.PersistentFlags().String("driver", "sqlite", "database driver")
 	rootCmd.PersistentFlags().String("dsn", "", "database source name(aka. DSN)")
 	rootCmd.PersistentFlags().String("instance-url", "", "the url of your memos instance")
+	rootCmd.PersistentFlags().String("ai-provider", "ollama", "writing assistant provider: ollama or openai")
+	rootCmd.PersistentFlags().String("ollama-base-url", "http://127.0.0.1:11434", "Ollama API base url")
+	rootCmd.PersistentFlags().String("ollama-model", "qwen3:8b", "Ollama model for writing assistant")
+	rootCmd.PersistentFlags().Int("ollama-timeout", 120, "Ollama request timeout in seconds")
+	rootCmd.PersistentFlags().String("openai-api-key", "", "OpenAI API key for writing assistant")
+	rootCmd.PersistentFlags().String("openai-base-url", "https://api.openai.com/v1", "OpenAI API base url")
+	rootCmd.PersistentFlags().String("openai-model", "gpt-4.1-mini", "OpenAI model for writing assistant")
+	rootCmd.PersistentFlags().Int("openai-timeout", 8, "OpenAI request timeout in seconds")
 
 	if err := viper.BindPFlag("demo", rootCmd.PersistentFlags().Lookup("demo")); err != nil {
 		panic(err)
@@ -129,8 +153,33 @@ func init() {
 	if err := viper.BindPFlag("instance-url", rootCmd.PersistentFlags().Lookup("instance-url")); err != nil {
 		panic(err)
 	}
+	if err := viper.BindPFlag("ai-provider", rootCmd.PersistentFlags().Lookup("ai-provider")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("ollama-base-url", rootCmd.PersistentFlags().Lookup("ollama-base-url")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("ollama-model", rootCmd.PersistentFlags().Lookup("ollama-model")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("ollama-timeout", rootCmd.PersistentFlags().Lookup("ollama-timeout")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("openai-api-key", rootCmd.PersistentFlags().Lookup("openai-api-key")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("openai-base-url", rootCmd.PersistentFlags().Lookup("openai-base-url")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("openai-model", rootCmd.PersistentFlags().Lookup("openai-model")); err != nil {
+		panic(err)
+	}
+	if err := viper.BindPFlag("openai-timeout", rootCmd.PersistentFlags().Lookup("openai-timeout")); err != nil {
+		panic(err)
+	}
 
 	viper.SetEnvPrefix("memos")
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 	viper.AutomaticEnv()
 }
 
