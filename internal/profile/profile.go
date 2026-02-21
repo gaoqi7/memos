@@ -32,6 +32,22 @@ type Profile struct {
 	Version string
 	// InstanceURL is the url of your memos instance.
 	InstanceURL string
+	// AIProvider is the writing assistant backend provider.
+	AIProvider string
+	// OllamaBaseURL is the base URL for Ollama API.
+	OllamaBaseURL string
+	// OllamaModel is the model used by Ollama writing assistant.
+	OllamaModel string
+	// OllamaTimeoutSeconds is the timeout for Ollama assistant requests.
+	OllamaTimeoutSeconds int
+	// OpenAIAPIKey is the API key for the writing assistant.
+	OpenAIAPIKey string
+	// OpenAIBaseURL is the base URL for OpenAI-compatible API.
+	OpenAIBaseURL string
+	// OpenAIModel is the model used by the writing assistant.
+	OpenAIModel string
+	// OpenAITimeoutSeconds is the timeout for assistant requests.
+	OpenAITimeoutSeconds int
 }
 
 func checkDataDir(dataDir string) (string, error) {
