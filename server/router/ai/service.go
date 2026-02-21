@@ -153,10 +153,46 @@ func (s *Service) writingAssist(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadGateway, message).SetInternal(err)
 	}
 
+	output = normalizeAssistOutput(mode, output)
+
 	return c.JSON(http.StatusOK, &writingAssistResponse{
 		Mode:   mode,
 		Output: output,
 	})
+}
+
+func normalizeAssistOutput(mode, output string) string {
+	cleaned := strings.TrimSpace(output)
+	if cleaned == "" {
+		return cleaned
+	}
+
+	if mode == modeGrammar || mode == modeRewrite {
+		lines := strings.Split(cleaned, "\n")
+		if len(lines) > 0 {
+			first := strings.TrimSpace(lines[0])
+			firstLower := strings.ToLower(first)
+			prefixes := []string{
+				"here's the memo in natural english:",
+				"here’s the memo in natural english:",
+				"here is the memo in natural english:",
+				"here's your memo in natural english:",
+				"here’s your memo in natural english:",
+				"here is your memo in natural english:",
+				"rewritten memo:",
+				"revised memo:",
+			}
+			for _, prefix := range prefixes {
+				if firstLower == prefix {
+					lines = lines[1:]
+					break
+				}
+			}
+		}
+		cleaned = strings.TrimSpace(strings.Join(lines, "\n"))
+	}
+
+	return cleaned
 }
 
 func buildPrompts(mode string, content string) (string, string) {
@@ -164,6 +200,7 @@ func buildPrompts(mode string, content string) (string, string) {
 		"You are an English writing assistant for memo drafts.",
 		"Keep markdown formatting, hashtags, links, and checklist syntax intact.",
 		"Do not add greetings, disclaimers, or extra preambles.",
+		"Never include headings like 'Here’s the memo in natural English:' or similar wrappers.",
 	}, "\n")
 
 	switch mode {
