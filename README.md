@@ -1,143 +1,102 @@
 # Memos
 
-<img align="right" height="96px" src="https://raw.githubusercontent.com/usememos/.github/refs/heads/main/assets/logo-rounded.png" alt="Memos" />
+An open-source, self-hosted note-taking service. This fork adds deep [Immich](https://immich.app/) integration — combine text, photos, and videos in your journal.
 
-An open-source, self-hosted note-taking service. Your thoughts, your data, your control — no tracking, no ads, no subscription fees.
+## Immich Integration
 
-[![Home](https://img.shields.io/badge/🏠-usememos.com-blue?style=flat-square)](https://usememos.com)
-[![Live Demo](https://img.shields.io/badge/✨-Try%20Demo-orange?style=flat-square)](https://demo.usememos.com/)
-[![Docs](https://img.shields.io/badge/📚-Documentation-green?style=flat-square)](https://usememos.com/docs)
-[![Discord](https://img.shields.io/badge/💬-Discord-5865f2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/tfPJa4UmAv)
-[![Docker Pulls](https://img.shields.io/docker/pulls/neosmemo/memos?style=flat-square&logo=docker)](https://hub.docker.com/r/neosmemo/memos)
+This fork connects Memos to your self-hosted Immich instance, letting you attach photos and videos from your Immich library directly into your notes.
 
-<img src="https://raw.githubusercontent.com/usememos/.github/refs/heads/main/assets/demo.png" alt="Memos Demo Screenshot" height="512" />
+### Setup
 
-### 💎 Featured Sponsors
+Set these environment variables when running the container:
 
-[**Warp** — The AI-powered terminal built for speed and collaboration](https://go.warp.dev/memos)
+```bash
+MEMOS_IMMICH_URL=https://your-immich-instance.com
+MEMOS_IMMICH_API_KEY=your-immich-api-key
+```
 
-<a href="https://go.warp.dev/memos" target="_blank" rel="noopener">
-  <img src="https://raw.githubusercontent.com/warpdotdev/brand-assets/main/Github/Sponsor/Warp-Github-LG-02.png" alt="Warp - The AI-powered terminal built for speed and collaboration" width="512" />
-</a>
+Optional — auto-add attached assets to a specific Immich album:
 
----
+```bash
+MEMOS_IMMICH_ALBUM_NAME=Memos       # default album name
+MEMOS_IMMICH_ALBUM_ID=album-uuid    # or use an existing album ID
+```
 
-[**TestMu AI** - The world’s first full-stack Agentic AI Quality Engineering platform](https://www.testmu.ai/?utm_source=memos&utm_medium=sponsor)
-  
-<a href="https://www.testmu.ai/?utm_source=memos&utm_medium=sponsor" target="_blank" rel="noopener">
-  <img src="https://usememos.com/sponsors/testmu.svg" alt="TestMu AI" height="36" />
-</a>
+### How It Works
 
-## Overview
+1. **Browse & attach** — Click the Immich button in the editor toolbar to open the picker. Browse all your Immich photos and videos with pagination (5-column grid, 35 per page). Select one or multiple items.
 
-Memos is a privacy-first, self-hosted knowledge base that works seamlessly for personal notes, team wikis, and knowledge management. Built with Go and React, it offers lightning-fast performance without compromising on features or usability.
+2. **No duplicate storage** — Attachments reference Immich assets via external links. Photos and videos are proxied through Memos but stored only in Immich. No wasted disk space.
 
-**Why choose Memos over cloud services?**
+3. **Auto album** — Attached assets are optionally added to a dedicated Immich album (default: "Memos") so you can easily find everything you've referenced in your notes.
 
-| Feature           | Memos                          | Cloud Services                |
-| ----------------- | ------------------------------ | ----------------------------- |
-| **Privacy**       | ✅ Self-hosted, zero telemetry | ❌ Your data on their servers |
-| **Cost**          | ✅ Free forever, MIT license   | ❌ Subscription fees          |
-| **Performance**   | ✅ Instant load, no latency    | ⚠️ Depends on internet        |
-| **Ownership**     | ✅ Full control & export       | ❌ Vendor lock-in             |
-| **API Access**    | ✅ Full REST + gRPC APIs       | ⚠️ Limited or paid            |
-| **Customization** | ✅ Open source, forkable       | ❌ Closed ecosystem           |
+4. **Video playback** — Video attachments play inline in notes with full controls. Click a video thumbnail to open a fullscreen lightbox with autoplay. Videos from Immich stream with proper range-request support.
 
-## Features
+5. **Image lightbox** — Click any image to open a fullscreen preview dialog.
 
-- **🔒 Privacy-First Architecture**
+### Immich Picker
 
-  - Self-hosted on your infrastructure with zero telemetry
-  - Complete data ownership and export capabilities
-  - No tracking, no ads, no vendor lock-in
+- **Page navigation** — Previous/Next buttons to browse your entire Immich library
+- **5-column grid** — 35 thumbnails per page for quick scanning
+- **Multi-select** — Pick multiple photos and videos at once
+- **Selection tracking** — Already-attached assets show as selected when you reopen the picker
 
-- **📝 Markdown Native**
+### Architecture
 
-  - Full markdown support
-  - Plain text storage — take your data anywhere
+```
+Memos Editor → Immich Picker Dialog → GET /api/immich/assets → Immich API /api/search/metadata
+                                                                  (falls back to /api/assets)
+Memos Viewer → <video>/<img> → GET /file/attachments/:uid/:filename → Immich API proxy
+```
 
-- **⚡ Blazing Fast**
-
-  - Built with Go backend and React frontend
-  - Optimized for performance at any scale
-
-- **🐳 Simple Deployment**
-
-  - One-line Docker installation
-  - Supports SQLite, MySQL, and PostgreSQL
-
-- **🔗 Developer-Friendly**
-
-  - Full REST and gRPC APIs
-  - Easy integration with existing workflows
-
-- **🎨 Beautiful Interface**
-  - Clean, minimal design and dark mode support
-  - Mobile-responsive layout
-- **🖼️ Immich Integration (This Fork)**
-  - Browse and attach Immich photos directly from the editor
-  - Attachments stay external (no duplicate file storage)
-  - Optional auto-add to a dedicated Immich album (default: "Memos")
+Attachments are stored with `immich:{assetId}` references and `EXTERNAL` storage type. The file server proxies requests to Immich, forwarding Range headers for video streaming.
 
 ## Quick Start
 
-### Docker (Recommended)
+### Docker
 
 ```bash
 docker run -d \
   --name memos \
   -p 5230:5230 \
   -v ~/.memos:/var/opt/memos \
+  -e MEMOS_IMMICH_URL=https://your-immich.com \
+  -e MEMOS_IMMICH_API_KEY=your-api-key \
   neosmemo/memos:stable
 ```
 
-Open `http://localhost:5230` and start writing!
+Open `http://localhost:5230` and start writing.
 
-### Try the Live Demo
+### Docker Compose
 
-Don't want to install yet? Try our [live demo](https://demo.usememos.com/) first!
+```yaml
+services:
+  memos:
+    image: neosmemo/memos:stable
+    container_name: memos
+    ports:
+      - "5230:5230"
+    volumes:
+      - ~/.memos:/var/opt/memos
+    environment:
+      - MEMOS_IMMICH_URL=https://your-immich.com
+      - MEMOS_IMMICH_API_KEY=your-api-key
+      - MEMOS_IMMICH_ALBUM_NAME=Memos
+    restart: unless-stopped
+```
 
-### Other Installation Methods
+## Features
 
-- **Docker Compose** - Recommended for production deployments
-- **Pre-built Binaries** - Available for Linux, macOS, and Windows
-- **Kubernetes** - Helm charts and manifests available
-- **Build from Source** - For development and customization
-
-See our [installation guide](https://usememos.com/docs/installation) for detailed instructions.
-
-## Contributing
-
-We welcome contributions of all kinds! Whether you're fixing bugs, adding features, improving documentation, or helping with translations — every contribution matters.
-
-**Ways to contribute:**
-
-- 🐛 [Report bugs](https://github.com/usememos/memos/issues/new?template=bug_report.md)
-- 💡 [Suggest features](https://github.com/usememos/memos/issues/new?template=feature_request.md)
-- 🔧 [Submit pull requests](https://github.com/usememos/memos/pulls)
-- 📖 [Improve documentation](https://github.com/usememos/memos/tree/main/docs)
-- 🌍 [Help with translations](https://github.com/usememos/memos/tree/main/web/src/locales)
-
-## Sponsors
-
-Love Memos? [Sponsor us on GitHub](https://github.com/sponsors/usememos) to help keep the project growing!
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=usememos/memos&type=Date)](https://star-history.com/#usememos/memos&Date)
+- **Privacy-first** — Self-hosted, zero telemetry, full data ownership
+- **Markdown native** — Full markdown support with plain text storage
+- **Immich integration** — Browse and attach photos/videos from your Immich library
+- **Video support** — Inline playback with fullscreen lightbox and autoplay
+- **Image lightbox** — Fullscreen preview for attached images
+- **Blazing fast** — Go backend + React frontend, optimized for performance
+- **Simple deployment** — One-line Docker, supports SQLite/MySQL/PostgreSQL
+- **Developer-friendly** — Full REST and gRPC APIs
+- **Beautiful interface** — Clean design, dark mode, mobile-responsive
 
 ## License
 
 Memos is open-source software licensed under the [MIT License](LICENSE).
-
-## Privacy Policy
-
-Memos is built with privacy as a core principle. As a self-hosted application, all your data stays on your infrastructure. There is no telemetry, no tracking, and no data collection. See our [Privacy Policy](https://usememos.com/privacy) for details.
-
----
-
-**[Website](https://usememos.com)** • **[Documentation](https://usememos.com/docs)** • **[Demo](https://demo.usememos.com/)** • **[Discord](https://discord.gg/tfPJa4UmAv)** • **[X/Twitter](https://x.com/usememos)**
-
-<a href="https://vercel.com/oss">
-  <img alt="Vercel OSS Program" src="https://vercel.com/oss/program-badge.svg" />
-</a>
