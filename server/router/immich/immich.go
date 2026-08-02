@@ -108,13 +108,16 @@ func (s *Service) listAssets(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to initialize immich client").SetInternal(err)
 	}
 
-	searchResponse, err := client.ListAssets(ctx, page, pageSize, "desc")
+	// Try SearchAssets first (POST /api/search/metadata) — modern Immich versions
+	// return proper pagination via this endpoint.
+	searchResponse, err := client.SearchAssets(ctx, immichclient.SearchAssetsRequest{
+		Page:  page,
+		Size:  pageSize,
+		Order: "desc",
+	})
 	if err != nil {
-		searchResponse, err = client.SearchAssets(ctx, immichclient.SearchAssetsRequest{
-			Page:  page,
-			Size:  pageSize,
-			Order: "desc",
-		})
+		// Fall back to ListAssets (GET /api/assets) for older Immich versions.
+		searchResponse, err = client.ListAssets(ctx, page, pageSize, "desc")
 		if err != nil {
 			return echo.NewHTTPError(http.StatusBadGateway, "failed to fetch immich assets").SetInternal(err)
 		}
@@ -133,9 +136,13 @@ func (s *Service) listAssets(c echo.Context) error {
 		})
 	}
 
+	// Pagination: prefer Immich's native fields, fall back to result-count heuristic.
 	nextPageToken := searchResponse.NextPageToken
 	if nextPageToken == "" && searchResponse.NextPage > 0 {
 		nextPageToken = strconv.Itoa(searchResponse.NextPage)
+	}
+	if nextPageToken == "" && len(assets) >= pageSize {
+		nextPageToken = strconv.Itoa(page + 1)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{

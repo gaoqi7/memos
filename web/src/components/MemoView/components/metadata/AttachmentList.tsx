@@ -58,9 +58,11 @@ const DocumentItem = ({ attachment }: { attachment: Attachment }) => {
 const MediaGrid = ({
   attachments,
   onImageClick,
+  onVideoClick,
 }: {
   attachments: Attachment[];
   onImageClick: (url: string) => void;
+  onVideoClick: (url: string, mimeType: string) => void;
 }) => (
   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
     {attachments.map((attachment) => {
@@ -70,17 +72,21 @@ const MediaGrid = ({
       return (
         <div
           key={attachment.name}
-          className={`aspect-square rounded-lg overflow-hidden bg-muted/40 border border-border hover:border-accent/50 transition-all group ${
-            attachmentType === "image/*" ? "cursor-pointer" : ""
-          }`}
+          className={`aspect-square rounded-lg overflow-hidden bg-muted/40 border border-border hover:border-accent/50 transition-all group cursor-pointer`}
           onClick={() => {
             if (attachmentType === "image/*") {
               onImageClick(mediaUrl);
+            } else if (attachmentType === "video/*") {
+              onVideoClick(mediaUrl, attachment.type);
             }
           }}
         >
           <div className="w-full h-full relative">
-            <AttachmentCard attachment={attachment} className="rounded-none" />
+            <AttachmentCard
+              attachment={attachment}
+              className="rounded-none"
+              onClick={attachmentType === "video/*" ? () => {} : undefined}
+            />
             {attachmentType === "video/*" && (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 transition-colors">
                 <div className="w-8 h-8 rounded-full bg-white/80 flex items-center justify-center">
@@ -129,13 +135,19 @@ const AttachmentList = ({ attachments }: AttachmentListProps) => {
     setPreviewImage({ open: true, urls: imgUrls, index, mimeType });
   };
 
+  const handleVideoClick = (videoUrl: string, mimeType: string) => {
+    setPreviewImage({ open: true, urls: [videoUrl], index: 0, mimeType });
+  };
+
   return (
     <>
       <div className="w-full rounded-lg border border-border bg-muted/20 overflow-hidden">
         <SectionHeader icon={PaperclipIcon} title="Attachments" count={attachments.length} />
 
         <div className="p-2 flex flex-col gap-1">
-          {mediaItems.length > 0 && <MediaGrid attachments={mediaItems} onImageClick={handleImageClick} />}
+          {mediaItems.length > 0 && (
+            <MediaGrid attachments={mediaItems} onImageClick={handleImageClick} onVideoClick={handleVideoClick} />
+          )}
 
           {mediaItems.length > 0 && docItems.length > 0 && <div className="border-t mt-1 border-border opacity-60" />}
 
@@ -148,6 +160,7 @@ const AttachmentList = ({ attachments }: AttachmentListProps) => {
         onOpenChange={(open: boolean) => setPreviewImage((prev) => ({ ...prev, open }))}
         imgUrls={previewImage.urls}
         initialIndex={previewImage.index}
+        mediaType={previewImage.mimeType}
       />
     </>
   );

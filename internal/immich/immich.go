@@ -160,6 +160,8 @@ type SearchAssetsRequest struct {
 	Size     int      `json:"size"`
 	Order    string   `json:"order,omitempty"`
 	AlbumIDs []string `json:"albumIds,omitempty"`
+	Query    string   `json:"query,omitempty"`
+	Type     string   `json:"type,omitempty"`
 }
 
 type SearchAssetsResponse struct {
@@ -538,15 +540,46 @@ func decodeSearchAssets(data []byte) (*SearchAssetsResponse, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Try top-level pagination fields first.
 	var response struct {
 		NextPage      int    `json:"nextPage"`
 		NextPageToken string `json:"nextPageToken"`
 	}
 	_ = json.Unmarshal(data, &response)
+	nextPage := response.NextPage
+	nextPageToken := response.NextPageToken
+
+	// If not found at top level, try inside nested objects (e.g. {"assets": {"nextPage": 2, ...}}).
+	if nextPage == 0 && nextPageToken == "" {
+		var rawObject map[string]json.RawMessage
+		if err := json.Unmarshal(data, &rawObject); err == nil {
+			for _, key := range []string{"assets", "data", "results"} {
+				if innerRaw, ok := rawObject[key]; ok {
+					var inner struct {
+						NextPage      int    `json:"nextPage"`
+						NextPageToken string `json:"nextPageToken"`
+					}
+					if err := json.Unmarshal(innerRaw, &inner); err == nil {
+						if inner.NextPage > 0 {
+							nextPage = inner.NextPage
+						}
+						if inner.NextPageToken != "" {
+							nextPageToken = inner.NextPageToken
+						}
+						if nextPage > 0 || nextPageToken != "" {
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
 	return &SearchAssetsResponse{
 		Assets:        assets,
-		NextPage:      response.NextPage,
-		NextPageToken: response.NextPageToken,
+		NextPage:      nextPage,
+		NextPageToken: nextPageToken,
 	}, nil
 }
 

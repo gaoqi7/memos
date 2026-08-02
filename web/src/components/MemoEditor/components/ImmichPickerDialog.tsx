@@ -1,4 +1,4 @@
-import { CheckCircle2Icon, LoaderIcon, RefreshCwIcon } from "lucide-react";
+import { CheckCircle2Icon, ChevronLeft, ChevronRight, LoaderIcon, RefreshCwIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
 import { Button } from "@/components/ui/button";
@@ -13,17 +13,18 @@ interface ImmichPickerDialogProps {
   onApplySelection: (selectedAssetIds: string[]) => Promise<void>;
 }
 
-const PAGE_SIZE = 60;
+const PAGE_SIZE = 35;
 
 const ImmichPickerDialog = ({ open, onOpenChange, attachedAssetIds, onApplySelection }: ImmichPickerDialogProps) => {
   const [assets, setAssets] = useState<ImmichAsset[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
   const [nextPageToken, setNextPageToken] = useState<string | undefined>();
   const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const hasMore = useMemo(() => Boolean(nextPageToken), [nextPageToken]);
+  const hasNextPage = useMemo(() => Boolean(nextPageToken), [nextPageToken]);
+  const hasPrevPage = currentPage > 1;
   const attachedIdSet = useMemo(() => new Set(attachedAssetIds), [attachedAssetIds]);
   const hasSelectionChanged = useMemo(() => {
     if (selectedIds.size !== attachedIdSet.size) {
@@ -37,15 +38,16 @@ const ImmichPickerDialog = ({ open, onOpenChange, attachedAssetIds, onApplySelec
     return false;
   }, [attachedIdSet, selectedIds]);
 
-  const fetchAssets = useCallback(
-    async (options: { reset?: boolean; pageToken?: string } = {}) => {
+  const fetchPage = useCallback(
+    async (page: number) => {
+      const pageToken = page > 1 ? String(page) : undefined;
       const response = await listImmichAssets({
         pageSize: PAGE_SIZE,
-        pageToken: options.pageToken,
+        pageToken,
       });
 
-      setAssets((prev) => (options.reset ? response.assets : [...prev, ...response.assets]));
-      setNextPageToken(response.nextPageToken || "");
+      setAssets(response.assets);
+      setNextPageToken(response.nextPageToken || undefined);
     },
     [],
   );
@@ -53,11 +55,13 @@ const ImmichPickerDialog = ({ open, onOpenChange, attachedAssetIds, onApplySelec
   useEffect(() => {
     if (!open) {
       setSelectedIds(new Set());
+      setCurrentPage(1);
       return;
     }
     setSelectedIds(new Set(attachedAssetIds));
+    setCurrentPage(1);
     setIsLoading(true);
-    fetchAssets({ reset: true, pageToken: undefined })
+    fetchPage(1)
       .catch((error) => {
         handleError(error, toast.error, {
           context: "Failed to fetch Immich assets",
@@ -67,24 +71,51 @@ const ImmichPickerDialog = ({ open, onOpenChange, attachedAssetIds, onApplySelec
       .finally(() => {
         setIsLoading(false);
       });
-  }, [attachedAssetIds, fetchAssets, open]);
+  }, [attachedAssetIds, fetchPage, open]);
 
-  const handleLoadMore = useCallback(async () => {
-    if (!nextPageToken) {
-      return;
-    }
-    setIsLoadingMore(true);
+  const handleRefresh = useCallback(async () => {
+    setIsLoading(true);
     try {
-      await fetchAssets({ pageToken: nextPageToken });
+      await fetchPage(currentPage);
     } catch (error) {
       handleError(error, toast.error, {
-        context: "Failed to load more Immich assets",
-        fallbackMessage: "Failed to load more Immich assets.",
+        context: "Failed to refresh Immich assets",
+        fallbackMessage: "Failed to load Immich assets.",
       });
     } finally {
-      setIsLoadingMore(false);
+      setIsLoading(false);
     }
-  }, [fetchAssets, nextPageToken]);
+  }, [currentPage, fetchPage]);
+
+  const handleGoToPage = useCallback(
+    async (page: number) => {
+      if (page < 1) return;
+      setIsLoading(true);
+      try {
+        await fetchPage(page);
+        setCurrentPage(page);
+      } catch (error) {
+        handleError(error, toast.error, {
+          context: `Failed to fetch page ${page} of Immich assets`,
+          fallbackMessage: "Failed to load Immich assets.",
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [fetchPage],
+  );
+
+  const handlePrevPage = useCallback(async () => {
+    if (!hasPrevPage) return;
+    await handleGoToPage(currentPage - 1);
+  }, [currentPage, handleGoToPage, hasPrevPage]);
+
+  const handleNextPage = useCallback(async () => {
+    if (!hasNextPage) return;
+    const nextPage = Number(nextPageToken);
+    await handleGoToPage(isNaN(nextPage) ? currentPage + 1 : nextPage);
+  }, [currentPage, handleGoToPage, hasNextPage, nextPageToken]);
 
   const handleSelectAsset = useCallback(
     (asset: ImmichAsset) => {
@@ -135,13 +166,13 @@ const ImmichPickerDialog = ({ open, onOpenChange, attachedAssetIds, onApplySelec
       <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col gap-4">
         <DialogHeader>
           <DialogTitle>Immich</DialogTitle>
-          <DialogDescription>Select one or more photos, then close to attach.</DialogDescription>
+          <DialogDescription>Select one or more photos/videos, then close to attach.</DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-2">
             <div className="text-sm text-muted-foreground">All photos</div>
-            <Button variant="outline" size="icon" onClick={() => fetchAssets({ reset: true })} disabled={isLoading}>
+            <Button variant="outline" size="icon" onClick={handleRefresh} disabled={isLoading}>
               {isLoading ? <LoaderIcon className="size-4 animate-spin" /> : <RefreshCwIcon className="size-4" />}
             </Button>
           </div>
@@ -158,7 +189,7 @@ const ImmichPickerDialog = ({ open, onOpenChange, attachedAssetIds, onApplySelec
               <div className="flex items-center justify-center py-16 text-muted-foreground">No assets found.</div>
             ) : null}
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-5 gap-3">
               {assets.map((asset) => (
                 <button
                   key={asset.id}
@@ -171,7 +202,7 @@ const ImmichPickerDialog = ({ open, onOpenChange, attachedAssetIds, onApplySelec
                   <img
                     src={asset.thumbnailUrl}
                     alt={asset.filename}
-                    className="h-32 w-full object-cover"
+                    className="h-28 w-full object-cover"
                     loading="lazy"
                   />
                   <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-black/40 transition" />
@@ -187,14 +218,27 @@ const ImmichPickerDialog = ({ open, onOpenChange, attachedAssetIds, onApplySelec
               ))}
             </div>
 
-            {hasMore ? (
-              <div className="flex justify-center mt-4">
-                <Button variant="outline" onClick={handleLoadMore} disabled={isLoadingMore}>
-                  {isLoadingMore ? <LoaderIcon className="size-4 animate-spin mr-2" /> : null}
-                  Load more
-                </Button>
-              </div>
-            ) : null}
+            <div className="flex items-center justify-center gap-2 mt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePrevPage}
+                disabled={!hasPrevPage || isLoading}
+              >
+                <ChevronLeft className="size-4" />
+                Previous
+              </Button>
+              <span className="text-sm text-muted-foreground px-3">Page {currentPage}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleNextPage}
+                disabled={!hasNextPage || isLoading}
+              >
+                Next
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>

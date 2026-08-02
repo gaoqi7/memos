@@ -28,13 +28,16 @@ const fetchWithAuth = async (input: RequestInfo, init: RequestInit = {}) => {
   });
 };
 
-export const listImmichAssets = async (params: { pageSize?: number; pageToken?: string } = {}): Promise<ListImmichAssetsResponse> => {
+export const listImmichAssets = async (params: { pageSize?: number; pageToken?: string; search?: string } = {}): Promise<ListImmichAssetsResponse> => {
   const query = new URLSearchParams();
   if (params.pageSize) {
     query.set("pageSize", params.pageSize.toString());
   }
   if (params.pageToken) {
     query.set("pageToken", params.pageToken);
+  }
+  if (params.search) {
+    query.set("search", params.search);
   }
   const url = `/api/immich/assets${query.toString() ? `?${query.toString()}` : ""}`;
   const response = await fetchWithAuth(url);

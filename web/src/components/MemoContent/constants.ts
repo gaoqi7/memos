@@ -35,6 +35,10 @@ export const SANITIZE_SCHEMA = {
     span: [...(defaultSchema.attributes?.span || []), "className", "style", ["aria*"], ["data*"]],
     // iframe attributes for video embeds
     iframe: ["src", "width", "height", "frameborder", "allowfullscreen", "allow", "title", "referrerpolicy", "loading"],
+    // video/audio element attributes for inline media playback
+    video: ["src", "controls", "playsinline", "preload", "width", "height", "poster", "loop", "muted", "autoplay", "class"],
+    audio: ["src", "controls", "preload", "loop", "muted", "autoplay", "class"],
+    source: ["src", "type"],
     // MathML attributes for KaTeX rendering
     annotation: ["encoding"],
     math: ["xmlns"],
@@ -55,6 +59,10 @@ export const SANITIZE_SCHEMA = {
     ...(defaultSchema.tagNames || []),
     // iframe for video embeds
     "iframe",
+    // video/audio elements for inline media playback
+    "video",
+    "audio",
+    "source",
     // MathML elements for KaTeX math rendering
     "math",
     "annotation",

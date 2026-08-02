@@ -20,7 +20,15 @@ const MemoAttachment: React.FC<Props> = (props: Props) => {
       className={`w-auto flex flex-row justify-start items-center text-muted-foreground hover:text-foreground hover:bg-accent rounded px-2 py-1 transition-colors ${className}`}
     >
       {attachment.type.startsWith("audio") && !isMidiFile(attachment.type) ? (
-        <audio src={attachmentUrl} controls></audio>
+        <audio src={attachmentUrl} controls preload="metadata" />
+      ) : attachment.type.startsWith("video") ? (
+        <video
+          src={attachmentUrl}
+          controls
+          playsInline
+          preload="metadata"
+          className="max-w-full max-h-64 rounded"
+        />
       ) : (
         <>
           <AttachmentIcon className="w-4! h-4! mr-1" attachment={attachment} />

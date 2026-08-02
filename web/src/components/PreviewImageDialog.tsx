@@ -8,10 +8,13 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   imgUrls: string[];
   initialIndex?: number;
+  mediaType?: string;
 }
 
-function PreviewImageDialog({ open, onOpenChange, imgUrls, initialIndex = 0 }: Props) {
+function PreviewImageDialog({ open, onOpenChange, imgUrls, initialIndex = 0, mediaType }: Props) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
+
+  const isVideo = mediaType?.startsWith("video/");
 
   // Update current index when initialIndex prop changes
   useEffect(() => {
@@ -46,7 +49,7 @@ function PreviewImageDialog({ open, onOpenChange, imgUrls, initialIndex = 0 }: P
     }
   };
 
-  // Return early if no images provided
+  // Return early if no media provided
   if (!imgUrls.length) return null;
 
   // Ensure currentIndex is within bounds
@@ -65,27 +68,37 @@ function PreviewImageDialog({ open, onOpenChange, imgUrls, initialIndex = 0 }: P
             variant="secondary"
             size="icon"
             className="rounded-full bg-popover/20 hover:bg-popover/30 border-border/20 backdrop-blur-sm"
-            aria-label="Close image preview"
+            aria-label="Close preview"
           >
             <X className="h-4 w-4 text-popover-foreground" />
           </Button>
         </div>
 
-        {/* Image container */}
+        {/* Media container */}
         <div className="w-full h-full flex items-center justify-center p-4 sm:p-8 overflow-auto" onClick={handleBackdropClick}>
-          <img
-            src={imgUrls[safeIndex]}
-            alt={`Preview image ${safeIndex + 1} of ${imgUrls.length}`}
-            className="max-w-full max-h-full object-contain select-none"
-            draggable={false}
-            loading="eager"
-            decoding="async"
-          />
+          {isVideo ? (
+            <video
+              src={imgUrls[safeIndex]}
+              controls
+              playsInline
+              autoPlay
+              className="max-w-full max-h-full object-contain select-none"
+            />
+          ) : (
+            <img
+              src={imgUrls[safeIndex]}
+              alt={`Preview image ${safeIndex + 1} of ${imgUrls.length}`}
+              className="max-w-full max-h-full object-contain select-none"
+              draggable={false}
+              loading="eager"
+              decoding="async"
+            />
+          )}
         </div>
 
         {/* Screen reader description */}
         <div id="image-preview-description" className="sr-only">
-          Image preview dialog. Press Escape to close or click outside the image.
+          Media preview dialog. Press Escape to close or click outside.
         </div>
       </DialogContent>
     </Dialog>
